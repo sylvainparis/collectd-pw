@@ -25,6 +25,10 @@
 #include "common.h"
 #include "plugin.h"
 
+#if KERNEL_LINUX
+#include <sys/utsname.h>
+#endif
+
 #if HAVE_KSTAT_H
 #include <kstat.h>
 #endif
@@ -183,8 +187,79 @@ static kstat_t *nfs4_ksp_server;
 /* Possibly TODO: NFSv4 statistics */
 
 #if KERNEL_LINUX
+static short proc_self_mountstats_is_available = 0;
+#endif
+
+#if KERNEL_LINUX
+static int is_proc_self_mountstats_available (void)
+{
+	FILE *fh;
+
+	fh = fopen("/proc/self/mountstats", "r");
+	if(NULL == fh) {
+		struct utsname uname_data;
+		char *kv;
+		if(uname(&uname_data)) {
+			WARNING("nfs plugin : Could not open /proc/self/mountstats. And Linux kernel info (from uname) is unavailable");
+		} else {
+			char *str, *end;
+			int k_version[3];
+			short print_warning = 1;
+			short parse_ok = 1;
+			int i;
+
+			kv = strdup(uname_data.release);
+			if(NULL == kv) return 1;
+
+			str = kv;
+			for(i=0; i<3; i++) {
+				errno=0;
+				k_version[i] = strtol(str, &end,10);
+				if(errno) {
+					parse_ok = 0;
+					break;
+				}
+				if(str == end) {
+					parse_ok = 0;
+					break;
+				}
+				if((k_version[0] >= 3)) break; /* Supported since 2.6.27 so no need to continue */
+				if(end[0] == '.') end++;
+				str = end;
+			}
+			if(parse_ok) {
+				if(k_version[0] >= 3) print_warning = 1;          /* Kernel >= 3.x   */
+				else if(k_version[0] < 2) print_warning = 0;      /* Kernel < 2.x    */
+				else { /* kernel 2.x */
+					if(k_version[1] < 6) print_warning = 0;       /* Kernel < 2.6    */
+					else { /* 2.6.x (or upper !?) */
+						if(k_version[2] < 17) print_warning = 0; /* Kernel < 2.6.17  */
+						else print_warning = 1;                  /* Kernel >= 2.6.17 */
+					}
+				}
+				if(print_warning) {
+					WARNING("nfs plugin : Could not open /proc/self/mountstats. You have kernel %s and this is supported since 2.6.17",kv);
+				}
+			} else {
+				WARNING("nfs plugin : Could not open /proc/self/mountstats. And kernel version could not be parsed (%s)", kv);
+			}
+			free(kv);
+		}
+		return(1); /* Not available */
+	} else {
+		fclose(fh);
+		return(0); /* Available */
+	}
+	assert(1==2); /* Should not happen */
+	return (-1);
+}
+#endif
+/* #endif KERNEL_LINUX */
+
+#if KERNEL_LINUX
 static int nfs_init (void)
 {
+	proc_self_mountstats_is_available = is_proc_self_mountstats_available();
 	return (0);
 }
 /* #endif KERNEL_LINUX */
@@ -387,3 +462,4 @@ void module_register (void)
 	plugin_register_init ("nfs", nfs_init);
 	plugin_register_read ("nfs", nfs_read);
 } /* void module_register */
+/* vim: set sw=4 ts=4 tw=78 noexpandtab : */
