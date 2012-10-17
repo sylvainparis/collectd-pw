@@ -100,6 +100,12 @@ mysql_handler		value:DERIVE:0:U
 mysql_locks		value:DERIVE:0:U
 mysql_log_position	value:DERIVE:0:U
 mysql_octets		rx:DERIVE:0:U, tx:DERIVE:0:U
+nfsclient_events	inoderevalidates:DERIVE:0:U, dentryrevalidates:DERIVE:0:U, datainvalidates:DERIVE:0:U, attrinvalidates:DERIVE:0:U, vfsopen:DERIVE:0:U, vfslookup:DERIVE:0:U, vfspermission:DERIVE:0:U, vfsupdatepage:DERIVE:0:U, vfsreadpage:DERIVE:0:U, vfsreadpages:DERIVE:0:U, vfswritepage:DERIVE:0:U, vfswritepages:DERIVE:0:U, vfsreaddir:DERIVE:0:U, vfssetattr:DERIVE:0:U, vfsflush:DERIVE:0:U, vfsfsync:DERIVE:0:U, vfslock:DERIVE:0:U, vfsrelease:DERIVE:0:U, congestionwait:DERIVE:0:U, setattrtrunc:DERIVE:0:U, extendwrite:DERIVE:0:U, sillyrenames:DERIVE:0:U, shortreads:DERIVE:0:U, shortwrites:DERIVE:0:U, delay:DERIVE:0:U
+nfsclient_bytes		normalreadbytes:DERIVE:0:U, normalwritebytes:DERIVE:0:U, directreadbytes:DERIVE:0:U, directwritebytes:DERIVE:0:U, serverreadbytes:DERIVE:0:U, serverwritebytes:DERIVE:0:U, readpages:DERIVE:0:U, writepages:DERIVE:0:U
+nfsclient_xprtudp	port:DERIVE:0:U, bind_count:DERIVE:0:U, rpcsends:DERIVE:0:U, rpcreceives:DERIVE:0:U, badxids:DERIVE:0:U, inflightsends:DERIVE:0:U, backlogutil:DERIVE:0:U
+nfsclient_xprttcp	port:DERIVE:0:U, bind_count:DERIVE:0:U, connect_count:DERIVE:0:U, connect_time:DERIVE:0:U, idle_time:DERIVE:0:U, rpcsends:DERIVE:0:U, rpcreceives:DERIVE:0:U, badxids:DERIVE:0:U, inflightsends:DERIVE:0:U, backlogutil:DERIVE:0:U
+nfsclient_xprtrdma	port:DERIVE:0:U, bind_count:DERIVE:0:U, connect_count:DERIVE:0:U, connect_time:DERIVE:0:U, idle_time:DERIVE:0:U, rpcsends:DERIVE:0:U, rpcreceives:DERIVE:0:U, badxids:DERIVE:0:U, backlogutil:DERIVE:0:U, read_chunks:DERIVE:0:U, write_chunks:DERIVE:0:U, reply_chunks:DERIVE:0:U, total_rdma_req:DERIVE:0:U, total_rdma_rep:DERIVE:0:U, pullup:DERIVE:0:U, fixup:DERIVE:0:U, hardway:DERIVE:0:U, failed_marshal:DERIVE:0:U, bad_reply:DERIVE:0:U
+nfsclient_perop		ops:DERIVE:0:U, ntrans:DERIVE:0:U, timeouts:DERIVE:0:U, bytes_sent:DERIVE:0:U, bytes_recv:DERIVE:0:U, om_queue:DERIVE:0:U, om_rtt:DERIVE:0:U, om_execute:DERIVE:0:U
 nfs_procedure		value:DERIVE:0:U
 nginx_connections	value:GAUGE:0:U
 nginx_requests		value:DERIVE:0:U
