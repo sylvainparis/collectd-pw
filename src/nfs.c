@@ -283,7 +283,7 @@ char *nfs_event_counters[] = {
 	"shortwrites",
 	"delay"
 };
-#define nb_nfs_event_counters (sizeof(nfs_event_counters)/sizeof(*nfs_event_counters))
+#define NB_NFS_EVENT_COUNTERS (sizeof(nfs_event_counters)/sizeof(*nfs_event_counters))
 
 char *nfs_byte_counters[] = {
 	 "normalreadbytes",
@@ -295,7 +295,7 @@ char *nfs_byte_counters[] = {
 	 "readpages",
 	 "writepages"
 };
-#define nb_nfs_byte_counters (sizeof(nfs_byte_counters)/sizeof(*nfs_byte_counters))
+#define NB_NFS_BYTE_COUNTERS (sizeof(nfs_byte_counters)/sizeof(*nfs_byte_counters))
 
 /* See /net/sunrpc/xprtsock.c in Linux Kernel sources */
 char *nfs_xprt_udp[] = {
@@ -307,7 +307,7 @@ char *nfs_xprt_udp[] = {
 	"inflightsends",
 	"backlogutil"
 };
-#define nb_nfs_xprt_udp (sizeof(nfs_xprt_udp)/sizeof(*nfs_xprt_udp))
+#define NB_NFS_XPRT_UDP (sizeof(nfs_xprt_udp)/sizeof(*nfs_xprt_udp))
 char *nfs_xprt_tcp[] = {
 	"port",
 	"bind_count",
@@ -320,7 +320,7 @@ char *nfs_xprt_tcp[] = {
 	"inflightsends",
 	"backlogutil"
 };
-#define nb_nfs_xprt_tcp (sizeof(nfs_xprt_tcp)/sizeof(*nfs_xprt_tcp))
+#define NB_NFS_XPRT_TCP (sizeof(nfs_xprt_tcp)/sizeof(*nfs_xprt_tcp))
 char *nfs_xprt_rdma[] = {
 	"port",
 	"bind_count",
@@ -342,13 +342,13 @@ char *nfs_xprt_rdma[] = {
 	"failed_marshal",
 	"bad_reply"
 };
-#define nb_nfs_xprt_rdma (sizeof(nfs_xprt_rdma)/sizeof(*nfs_xprt_rdma))
+#define NB_NFS_XPRT_RDMA (sizeof(nfs_xprt_rdma)/sizeof(*nfs_xprt_rdma))
 
-#define max3(x,y,z) ( \
+#define MAX3(x,y,z) ( \
 	( (((x)>(y)) ? (x):(y)) > (z) ) \
 	? (((x)>(y)) ? (x):(y)) : (z) \
 	)
-#define nb_nfs_xprt_any (max3(nb_nfs_xprt_udp,nb_nfs_xprt_tcp,nb_nfs_xprt_rdma))
+#define NB_NFS_XPRT_ANY (MAX3(NB_NFS_XPRT_UDP,NB_NFS_XPRT_TCP,NB_NFS_XPRT_RDMA))
 
 /* Per op statistics : metrics :
 metrics->om_ops,
@@ -361,7 +361,7 @@ ktime_to_ms(metrics->om_rtt),
 ktime_to_ms(metrics->om_execute));
 */
 
-#define next_non_space_char(s) do { \
+#define NEXT_NON_SPACE_CHAR(s) do { \
 		while((s)[0] && (((s)[0] == ' ') || (s)[0] == '\t')) (s)++; \
 	} while(0)
 
@@ -379,10 +379,10 @@ typedef struct {
 typedef struct {
 	char *mountpoint;
 	time_t age;
-	unsigned long long events[nb_nfs_event_counters];
-	unsigned long long bytes[nb_nfs_byte_counters];
+	unsigned long long events[NB_NFS_EVENT_COUNTERS];
+	unsigned long long bytes[NB_NFS_BYTE_COUNTERS];
 	nfs_xprt_type_e xprt_type;
-	unsigned long long xprt[nb_nfs_xprt_any];
+	unsigned long long xprt[NB_NFS_XPRT_ANY];
 	nfs_per_op_statistic_t *op;
 	int nb_op;
 	int size_op;
@@ -409,25 +409,25 @@ void print_mountstats(mountstats_t *m) {
 #define NFSPLUGININFO "nfs plugin DEBUG "
 	INFO(NFSPLUGININFO "Mountpoint : '%s'", m->mountpoint);
 	INFO(NFSPLUGININFO "age        : '%ld'", m->age);
-	for(i=0; i<nb_nfs_event_counters; i++) {
+	for(i=0; i<NB_NFS_EVENT_COUNTERS; i++) {
 		INFO(NFSPLUGININFO "event (%20s) : '%Lu'", nfs_event_counters[i], m->events[i]);
 	}
-	for(i=0; i<nb_nfs_byte_counters; i++) {
+	for(i=0; i<NB_NFS_BYTE_COUNTERS; i++) {
 		INFO(NFSPLUGININFO "bytes (%20s) : '%Lu'", nfs_byte_counters[i], m->bytes[i]);
 	}
 	switch(m->xprt_type) {
 		case nfs_xprt_type_tcp :
-			for(i=0; i<nb_nfs_xprt_tcp; i++) {
+			for(i=0; i<NB_NFS_XPRT_TCP; i++) {
 				INFO(NFSPLUGININFO "xprt (%20s) : '%Lu'", nfs_xprt_tcp[i], m->xprt[i]);
 			}
 			break;
 		case nfs_xprt_type_udp :
-			for(i=0; i<nb_nfs_xprt_udp; i++) {
+			for(i=0; i<NB_NFS_XPRT_UDP; i++) {
 				INFO(NFSPLUGININFO "xprt (%20s) : '%Lu'", nfs_xprt_udp[i], m->xprt[i]);
 			}
 			break;
 		case nfs_xprt_type_rdma :
-			for(i=0; i<nb_nfs_xprt_rdma; i++) {
+			for(i=0; i<NB_NFS_XPRT_RDMA; i++) {
 				INFO(NFSPLUGININFO "xprt (%20s) : '%Lu'", nfs_xprt_rdma[i], m->xprt[i]);
 			}
 			break;
@@ -444,7 +444,7 @@ void print_mountstats(mountstats_t *m) {
 	INFO(NFSPLUGININFO "End (%s)", m->mountpoint);
 }
 
-static void mountstats_initialize_value_list(value_list_t *vl, mountstats_t *m) {
+static void mountstats_initialize_value_list(value_list_t *vl, mountstats_t *m, const char *data_type) {
 	int i;
 	
 	vl->values=NULL;
@@ -456,6 +456,7 @@ static void mountstats_initialize_value_list(value_list_t *vl, mountstats_t *m) 
 	sstrncpy (vl->plugin, "nfs", sizeof (vl->plugin));
 	sstrncpy (vl->plugin_instance, m->mountpoint,
 			sizeof (vl->plugin_instance));
+	sstrncpy (vl->type, data_type, sizeof (vl->type));
 	for(i=0; vl->plugin_instance[i]; i++) {
 		if( !(
 			((vl->plugin_instance[i] >= 'A') && (vl->plugin_instance[i] <= 'Z')) || 
@@ -465,83 +466,78 @@ static void mountstats_initialize_value_list(value_list_t *vl, mountstats_t *m) 
 				vl->plugin_instance[i] = '_';
 			}
 	}
-	vl->type[0] = '\0';
 	vl->type_instance[0] = '\0';
 }
 
 static void mountstats_submit (mountstats_t *m) {
 	value_list_t vl = VALUE_LIST_INIT;
 	size_t i;
-	value_t values[nb_nfs_xprt_any];
+	value_t values[MAX3(NB_NFS_BYTE_COUNTERS,NB_NFS_EVENT_COUNTERS, NB_NFS_XPRT_ANY)];
 
 	/* type : age */
-	mountstats_initialize_value_list(&vl, m);
+	mountstats_initialize_value_list(&vl, m, "uptime");
 	vl.values = values;
-	sstrncpy (vl.type, "uptime", sizeof (vl.type));
 	vl.values_len = 1;
 	values[0].gauge = m->age;
-	plugin_dispatch_values_secure (&vl);
+	plugin_dispatch_values (&vl);
 
 	/* type : events */
-	mountstats_initialize_value_list(&vl, m);
+	mountstats_initialize_value_list(&vl, m, "nfsclient_events");
 	vl.values = values;
-	sstrncpy (vl.type, "nfsclient_events", sizeof (vl.type));
-	vl.values_len = nb_nfs_event_counters;
-	for(i=0; i<nb_nfs_event_counters; i++) {
-		values[i].derive = m->events[i];
+	vl.values_len = NB_NFS_EVENT_COUNTERS;
+	for(i=0; i<NB_NFS_EVENT_COUNTERS; i++) {
+		values[i].counter = m->events[i];
 	}
-	plugin_dispatch_values_secure (&vl);
+	plugin_dispatch_values (&vl);
 
 	/* type : bytes */
-	mountstats_initialize_value_list(&vl, m);
+	mountstats_initialize_value_list(&vl, m, "nfsclient_bytes");
 	vl.values = values;
-	sstrncpy (vl.type, "nfsclient_bytes", sizeof (vl.type));
-	vl.values_len = nb_nfs_byte_counters;
-	for(i=0; i<nb_nfs_byte_counters; i++) {
-		values[i].derive = m->bytes[i];
+	vl.values_len = NB_NFS_BYTE_COUNTERS;
+	for(i=0; i<NB_NFS_BYTE_COUNTERS; i++) {
+		values[i].counter = m->bytes[i];
 	}
-	plugin_dispatch_values_secure (&vl);
+	plugin_dispatch_values(&vl);
 
 	/* type : xprt */
-	mountstats_initialize_value_list(&vl, m);
-	vl.values = values;
 	switch(m->xprt_type) {
 		case nfs_xprt_type_udp :
-			sstrncpy (vl.type, "nfsclient_xprtudp", sizeof (vl.type));
-			vl.values_len = nb_nfs_xprt_udp;
-			for(i=0; i<nb_nfs_xprt_udp; i++) {
-				values[i].derive = m->xprt[i];
+			mountstats_initialize_value_list(&vl, m, "nfsclient_xprtudp");
+			vl.values_len = NB_NFS_XPRT_UDP;
+			for(i=0; i<NB_NFS_XPRT_UDP; i++) {
+				values[i].counter = m->xprt[i];
 			}
 			break;
 		case nfs_xprt_type_tcp :
-			sstrncpy (vl.type, "nfsclient_xprttcp", sizeof (vl.type));
-			vl.values_len = nb_nfs_xprt_tcp;
-			for(i=0; i<nb_nfs_xprt_tcp; i++) {
-				values[i].derive = m->xprt[i];
+			mountstats_initialize_value_list(&vl, m, "nfsclient_xprttcp");
+			vl.values_len = NB_NFS_XPRT_TCP;
+			for(i=0; i<NB_NFS_XPRT_TCP; i++) {
+				values[i].counter = m->xprt[i];
 			}
 			break;
 		case nfs_xprt_type_rdma :
-			sstrncpy (vl.type, "nfsclient_xprtrdma", sizeof (vl.type));
-			vl.values_len = nb_nfs_xprt_rdma;
-			for(i=0; i<nb_nfs_xprt_rdma; i++) {
-				values[i].derive = m->xprt[i];
+			mountstats_initialize_value_list(&vl, m, "nfsclient_xprtrdma");
+			vl.values_len = NB_NFS_XPRT_RDMA;
+			for(i=0; i<NB_NFS_XPRT_RDMA; i++) {
+				values[i].counter = m->xprt[i];
 			}
 			break;
 	}
-	plugin_dispatch_values_secure (&vl);
+	vl.values = values;
+	plugin_dispatch_values (&vl);
 
 	/* type : perop */
 	for(i=0; i<m->nb_op; i++) {
-		mountstats_initialize_value_list(&vl, m);
-		sstrncpy (vl.type, "nfsclient_perop", sizeof (vl.type));
-		vl.values = values;
+		int j;
+		mountstats_initialize_value_list(&vl, m, "nfsclient_perop");
 		sstrncpy (vl.type_instance, m->op[i].op_name, sizeof (vl.type_instance));
 		vl.values_len = 8;
-		for(i=0; i<8; i++) {
-			values[i].derive = (derive_t)m->op[i].op;
+		for(j=0; j<vl.values_len; j++) {
+			values[j].counter = m->op[i].op[j];
 		}
 
-		plugin_dispatch_values_secure (&vl);
+		vl.values = values;
+		plugin_dispatch_values (&vl);
 	}
 
 } /* void mountstats_submit */
@@ -549,7 +545,7 @@ static void mountstats_submit (mountstats_t *m) {
 
 void dispatch_mountstats(mountstats_t *m) {
 	if(NULL == m->mountpoint) return;
-	print_mountstats(m);
+//	print_mountstats(m);
 	mountstats_submit(m);
 }
 
@@ -559,7 +555,7 @@ int string_to_array_of_Lu(char *str, unsigned long long *a, int n) {
 
 	s = str;
 	for(i=0; i<n; i++) {
-		next_non_space_char(s);
+		NEXT_NON_SPACE_CHAR(s);
 		if((s[0] == '\0') || (s[0] == '\n')) return(i);
 		errno=0;
 		a[i] = strtoull(s,&endptr, 10);
@@ -620,7 +616,7 @@ int parse_proc_self_mountstats(void) {
 					goto an_error_happened;
 				}
 				str = wbuf+i+1;
-				next_non_space_char(str); /* remove extra spaces */
+				NEXT_NON_SPACE_CHAR(str); /* remove extra spaces */
 				nfsdir=str;
 
 				/* Find the FS type */
@@ -630,7 +626,7 @@ int parse_proc_self_mountstats(void) {
 					goto an_error_happened;
 				}
 				str += sizeof(" with fstype ")-1;
-				next_non_space_char(str); /* remove extra spaces */
+				NEXT_NON_SPACE_CHAR(str); /* remove extra spaces */
 				if(strncmp(str,"nfs", 3)) {
 					/* Not nfs. Skip this line */
 					break;
@@ -662,10 +658,10 @@ int parse_proc_self_mountstats(void) {
 				break;
 			case psm_state_device_nfs :
 				str = wbuf;
-				next_non_space_char(str);
+				NEXT_NON_SPACE_CHAR(str);
 				if(!strncmp(str, "age:", sizeof("age:")-1)) {
 					str += sizeof("age:");
-					next_non_space_char(str);
+					NEXT_NON_SPACE_CHAR(str);
 					if(str[0] == '\0') {
 						parse_error = 1;
 						goto an_error_happened;
@@ -677,32 +673,32 @@ int parse_proc_self_mountstats(void) {
 						goto an_error_happened;
 					}
 				} else if(!strncmp(str,"events:", sizeof("events:")-1)) {
-					int n = string_to_array_of_Lu(str+sizeof("events:"),mountstats.events, nb_nfs_event_counters);
-					if(n != nb_nfs_event_counters) {
+					int n = string_to_array_of_Lu(str+sizeof("events:"),mountstats.events, NB_NFS_EVENT_COUNTERS);
+					if(n != NB_NFS_EVENT_COUNTERS) {
 						parse_error = 1;
 						goto an_error_happened;
 					}
 				} else if(!strncmp(str,"bytes:", sizeof("bytes:")-1)) {
-					int n = string_to_array_of_Lu(str+sizeof("bytes:"),mountstats.bytes, nb_nfs_byte_counters);
-					if(n != nb_nfs_byte_counters) {
+					int n = string_to_array_of_Lu(str+sizeof("bytes:"),mountstats.bytes, NB_NFS_BYTE_COUNTERS);
+					if(n != NB_NFS_BYTE_COUNTERS) {
 						parse_error = 1;
 						goto an_error_happened;
 					}
 				} else if(!strncmp(str,"xprt:", sizeof("xprt:")-1)) {
 					int n=-1;
 					str += sizeof("xprt:");
-					next_non_space_char(str);
+					NEXT_NON_SPACE_CHAR(str);
 					if(!strncmp(str, "tcp ", sizeof("tcp ")-1)) {
-						n = string_to_array_of_Lu(str+sizeof("tcp ")-1,mountstats.xprt, nb_nfs_xprt_tcp);
-						n -= nb_nfs_xprt_tcp;
+						n = string_to_array_of_Lu(str+sizeof("tcp ")-1,mountstats.xprt, NB_NFS_XPRT_TCP);
+						n -= NB_NFS_XPRT_TCP;
 						mountstats.xprt_type = nfs_xprt_type_tcp;
 					} else if(!strncmp(str, "udp ", sizeof("udp ")-1)) {
-						n = string_to_array_of_Lu(str+sizeof("udp ")-1,mountstats.xprt, nb_nfs_xprt_udp);
-						n -= nb_nfs_xprt_udp;
+						n = string_to_array_of_Lu(str+sizeof("udp ")-1,mountstats.xprt, NB_NFS_XPRT_UDP);
+						n -= NB_NFS_XPRT_UDP;
 						mountstats.xprt_type = nfs_xprt_type_udp;
 					} else if(!strncmp(str, "rdma ", sizeof("rdma ")-1)) {
-						n = string_to_array_of_Lu(str+sizeof("rdma ")-1,mountstats.xprt, nb_nfs_xprt_rdma);
-						n -= nb_nfs_xprt_rdma;
+						n = string_to_array_of_Lu(str+sizeof("rdma ")-1,mountstats.xprt, NB_NFS_XPRT_RDMA);
+						n -= NB_NFS_XPRT_RDMA;
 						mountstats.xprt_type = nfs_xprt_type_rdma;
 					}
 					if(n != 0) {
@@ -715,7 +711,7 @@ int parse_proc_self_mountstats(void) {
 				break;
 			case psm_state_device_nfs_per_opt_stats :
 				str = wbuf;
-				next_non_space_char(str);
+				NEXT_NON_SPACE_CHAR(str);
 				if((str[0] == '\0') || (str[0] == '\n')) { break; }
 				for(i=0; str[i] && (str[i] != ':'); i++);
 				if((str[0] == '\0') || (str[0] == '\n')) { 
@@ -731,7 +727,7 @@ int parse_proc_self_mountstats(void) {
 					}
 					mountstats.size_op+=50;
 				}
-				strncpy(mountstats.op[mountstats.nb_op].op_name, str, i);
+				sstrncpy(mountstats.op[mountstats.nb_op].op_name, str, i);
 				str+= i+1;
 				if(8 != string_to_array_of_Lu(str,mountstats.op[mountstats.nb_op].op, 8)) {
 					parse_error = 1;
@@ -830,7 +826,7 @@ static void nfs_procedures_submit (const char *plugin_instance,
 		vl.values = values + i;
 		sstrncpy (vl.type_instance, type_instances[i],
 				sizeof (vl.type_instance));
-		plugin_dispatch_values_secure (&vl);
+		plugin_dispatch_values (&vl);
 	}
 } /* void nfs_procedures_submit */
 
@@ -930,6 +926,7 @@ static int nfs_read_kstat (kstat_t *ksp, int nfs_version, char *inst,
 static int nfs_read (void)
 {
 	FILE *fh;
+INFO("nfs plugin : Starting read callback (%s %s)", __DATE__, __TIME__);
 
 	if ((fh = fopen ("/proc/net/rpc/nfs", "r")) != NULL)
 	{
