@@ -450,7 +450,7 @@ static void mountstats_initialize_value_list(value_list_t *vl, mountstats_t *m, 
 	vl->values=NULL;
 	vl->values_len = 0;
 	vl->time = 0;
-	vl->time = interval_g;
+	vl->interval = interval_g;
 	vl->meta = NULL;
 	sstrncpy (vl->host, hostname_g, sizeof (vl->host));
 	sstrncpy (vl->plugin, "nfs", sizeof (vl->plugin));
@@ -727,7 +727,9 @@ int parse_proc_self_mountstats(void) {
 					}
 					mountstats.size_op+=50;
 				}
-				sstrncpy(mountstats.op[mountstats.nb_op].op_name, str, i);
+				sstrncpy(mountstats.op[mountstats.nb_op].op_name, str, 
+						((i+1) > sizeof(mountstats.op[mountstats.nb_op].op_name))?
+								sizeof(mountstats.op[mountstats.nb_op].op_name):(i+1));
 				str+= i+1;
 				if(8 != string_to_array_of_Lu(str,mountstats.op[mountstats.nb_op].op, 8)) {
 					parse_error = 1;
