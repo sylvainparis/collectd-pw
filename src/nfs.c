@@ -48,7 +48,7 @@ typedef struct {
 	time_t min_age;
 	c_avl_tree_t *perop_statistics; /* NULL means : either all or none. check perop_statistics_string */
 	char *perop_statistics_string; /* NULL means none. If not null, check perop_statistics */
-	short show;
+	short enable;
 } nfs_mountpoints_config_t;
 
 /*
@@ -441,7 +441,7 @@ static int config_nfs_mountpoint_add(oconfig_item_t *ci) {
 	item->min_age = 0;
 	item->perop_statistics = NULL;
 	item->perop_statistics_string = NULL;
-	item->show = 1;
+	item->enable = 1;
 
 	for (i = 0; i < ci->children_num; i++)
 	{
@@ -466,13 +466,13 @@ static int config_nfs_mountpoint_add(oconfig_item_t *ci) {
 					break;
 				}
 			}
-		} else if (strcasecmp ("show", child->key) == 0) {
+		} else if (strcasecmp ("enable", child->key) == 0) {
 			if (child->values[0].type != OCONFIG_TYPE_BOOLEAN) {
 				WARNING ("nfs plugin:  'min_age' needs exactly one boolean argument.");
 				status = -1;
 				break;
 			} else {
-				item->show = child->values[0].value.boolean;
+				item->enable = child->values[0].value.boolean;
 			}
 		} else {
 			WARNING ("nfs plugin: Ignoring unknown config option `%s'.", child->key);
@@ -623,7 +623,7 @@ static int is_proc_self_mountstats_available (void)
 			nfs_deconfig_cb();
 			return(-1);
 		}
-		item->show = 1;                       /* default : keep the statistics */
+		item->enable = 1;                       /* default : keep the statistics */
 		item->min_age = 3600;                 /* default : do not record before 1 hour */
 		item->perop_statistics= NULL;         /* default : do not record per-op statistics */
 		item->perop_statistics_string = NULL; /* default : do not record per-op statistics */
@@ -719,7 +719,7 @@ static void mountstats_submit (mountstats_t *m) {
 		assert(r == 0);
 	}
 
-	if(0 == config_item->show) {
+	if(0 == config_item->enable) {
 		return;
 	}
 
