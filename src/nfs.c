@@ -36,6 +36,7 @@
 
 /* Config defs */
 static c_avl_tree_t *config_mountpoints = NULL;
+static short enable_client_stats_per_mountpoint = 0;
 
 /* about nfs_mountpoints_config_t->perop_statistics/perop_statistics_string
  * perop_statistics_string == NULL : no per-op statistics.
@@ -202,6 +203,146 @@ static kstat_t *nfs4_ksp_server;
 #endif
 
 /* Possibly TODO: NFSv4 statistics */
+
+char *nfs_event_counters[] = {
+	"inoderevalidates",
+	"dentryrevalidates",
+	"datainvalidates",
+	"attrinvalidates",
+	"vfsopen",
+	"vfslookup",
+	"vfspermission",
+	"vfsupdatepage",
+	"vfsreadpage",
+	"vfsreadpages",
+	"vfswritepage",
+	"vfswritepages",
+	"vfsreaddir",
+	"vfssetattr",
+	"vfsflush",
+	"vfsfsync",
+	"vfslock",
+	"vfsrelease",
+	"congestionwait",
+	"setattrtrunc",
+	"extendwrite",
+	"sillyrenames",
+	"shortreads",
+	"shortwrites",
+	"delay"
+};
+#define NB_NFS_EVENT_COUNTERS (sizeof(nfs_event_counters)/sizeof(*nfs_event_counters))
+
+char *nfs_byte_counters[] = {
+	 "normalreadbytes",
+	 "normalwritebytes",
+	 "directreadbytes",
+	 "directwritebytes",
+	 "serverreadbytes",
+	 "serverwritebytes",
+	 "readpages",
+	 "writepages"
+};
+#define NB_NFS_BYTE_COUNTERS (sizeof(nfs_byte_counters)/sizeof(*nfs_byte_counters))
+
+/* See /net/sunrpc/xprtsock.c in Linux Kernel sources */
+char *nfs_xprt_udp[] = {
+	"port",
+	"bind_count",
+	"rpcsends",
+	"rpcreceives",
+	"badxids",
+	"inflightsends",
+	"backlogutil"
+};
+#define NB_NFS_XPRT_UDP (sizeof(nfs_xprt_udp)/sizeof(*nfs_xprt_udp))
+char *nfs_xprt_tcp[] = {
+	"port",
+	"bind_count",
+	"connect_count",
+	"connect_time",
+	"idle_time",
+	"rpcsends",
+	"rpcreceives",
+	"badxids",
+	"inflightsends",
+	"backlogutil"
+};
+#define NB_NFS_XPRT_TCP (sizeof(nfs_xprt_tcp)/sizeof(*nfs_xprt_tcp))
+char *nfs_xprt_rdma[] = {
+	"port",
+	"bind_count",
+	"connect_count",
+	"connect_time",
+	"idle_time",
+	"rpcsends",
+	"rpcreceives",
+	"badxids",
+	"backlogutil",
+	"read_chunks",
+	"write_chunks",
+	"reply_chunks",
+	"total_rdma_req",
+	"total_rdma_rep",
+	"pullup",
+	"fixup",
+	"hardway",
+	"failed_marshal",
+	"bad_reply"
+};
+#define NB_NFS_XPRT_RDMA (sizeof(nfs_xprt_rdma)/sizeof(*nfs_xprt_rdma))
+
+#define MAX3(x,y,z) ( \
+	( (((x)>(y)) ? (x):(y)) > (z) ) \
+	? (((x)>(y)) ? (x):(y)) : (z) \
+	)
+#define NB_NFS_XPRT_ANY (MAX3(NB_NFS_XPRT_UDP,NB_NFS_XPRT_TCP,NB_NFS_XPRT_RDMA))
+
+/* Per op statistics : metrics :
+metrics->om_ops,
+metrics->om_ntrans,
+metrics->om_timeouts,
+metrics->om_bytes_sent,
+metrics->om_bytes_recv,
+ktime_to_ms(metrics->om_queue),
+ktime_to_ms(metrics->om_rtt),
+ktime_to_ms(metrics->om_execute));
+*/
+
+#define NEXT_NON_SPACE_CHAR(s) do { \
+		while((s)[0] && (((s)[0] == ' ') || (s)[0] == '\t')) (s)++; \
+	} while(0)
+
+typedef enum {
+	nfs_xprt_type_tcp,
+	nfs_xprt_type_udp,
+	nfs_xprt_type_rdma
+} nfs_xprt_type_e;
+
+typedef struct {
+	char op_name[1024];
+	unsigned long long op[8];
+} nfs_per_op_statistic_t;
+
+typedef struct {
+	char *mountpoint;
+	time_t age;
+	unsigned long long events[NB_NFS_EVENT_COUNTERS];
+	unsigned long long bytes[NB_NFS_BYTE_COUNTERS];
+	nfs_xprt_type_e xprt_type;
+	unsigned long long xprt[NB_NFS_XPRT_ANY];
+	nfs_per_op_statistic_t *op;
+	int nb_op;
+	int size_op;
+} mountstats_t;
+
+typedef enum {
+	psm_state_start,
+	psm_state_check_device,
+	psm_state_device_nfs,
+	psm_state_device_nfs_per_opt_stats
+} proc_self_mountstats_state_e;
+
 
 /* Deconfigure */
 static int nfs_deconfig_cb (void) {
@@ -372,6 +513,14 @@ static int nfs_config_cb (oconfig_item_t *ci) {
 				nfs_deconfig_cb();
 				return(-1);
 			}
+		} else if (strcasecmp ("enable_client_stats_per_mountpoint", child->key) == 0) {
+			if (child->values[0].type != OCONFIG_TYPE_BOOLEAN) {
+				WARNING ("nfs plugin:  '"enable_client_stats_per_mountpoint"' needs exactly one boolean argument.");
+				nfs_deconfig_cb();
+				return(-1);
+			} else {
+				enable_client_stats_per_mountpoint = child->values[0].value.boolean;
+			}
 		}
 		else
 		{
@@ -393,6 +542,9 @@ static int is_proc_self_mountstats_available (void)
 	FILE *fh;
 	void *dummy;
 
+	if(0 == enable_client_stats_per_mountpoint) {
+		return(1);
+	}
 	fh = fopen("/proc/self/mountstats", "r");
 	if(NULL == fh) {
 		struct utsname uname_data;
@@ -480,145 +632,6 @@ static int is_proc_self_mountstats_available (void)
 
 	return (0);
 }
-
-char *nfs_event_counters[] = {
-	"inoderevalidates",
-	"dentryrevalidates",
-	"datainvalidates",
-	"attrinvalidates",
-	"vfsopen",
-	"vfslookup",
-	"vfspermission",
-	"vfsupdatepage",
-	"vfsreadpage",
-	"vfsreadpages",
-	"vfswritepage",
-	"vfswritepages",
-	"vfsreaddir",
-	"vfssetattr",
-	"vfsflush",
-	"vfsfsync",
-	"vfslock",
-	"vfsrelease",
-	"congestionwait",
-	"setattrtrunc",
-	"extendwrite",
-	"sillyrenames",
-	"shortreads",
-	"shortwrites",
-	"delay"
-};
-#define NB_NFS_EVENT_COUNTERS (sizeof(nfs_event_counters)/sizeof(*nfs_event_counters))
-
-char *nfs_byte_counters[] = {
-	 "normalreadbytes",
-	 "normalwritebytes",
-	 "directreadbytes",
-	 "directwritebytes",
-	 "serverreadbytes",
-	 "serverwritebytes",
-	 "readpages",
-	 "writepages"
-};
-#define NB_NFS_BYTE_COUNTERS (sizeof(nfs_byte_counters)/sizeof(*nfs_byte_counters))
-
-/* See /net/sunrpc/xprtsock.c in Linux Kernel sources */
-char *nfs_xprt_udp[] = {
-	"port",
-	"bind_count",
-	"rpcsends",
-	"rpcreceives",
-	"badxids",
-	"inflightsends",
-	"backlogutil"
-};
-#define NB_NFS_XPRT_UDP (sizeof(nfs_xprt_udp)/sizeof(*nfs_xprt_udp))
-char *nfs_xprt_tcp[] = {
-	"port",
-	"bind_count",
-	"connect_count",
-	"connect_time",
-	"idle_time",
-	"rpcsends",
-	"rpcreceives",
-	"badxids",
-	"inflightsends",
-	"backlogutil"
-};
-#define NB_NFS_XPRT_TCP (sizeof(nfs_xprt_tcp)/sizeof(*nfs_xprt_tcp))
-char *nfs_xprt_rdma[] = {
-	"port",
-	"bind_count",
-	"connect_count",
-	"connect_time",
-	"idle_time",
-	"rpcsends",
-	"rpcreceives",
-	"badxids",
-	"backlogutil",
-	"read_chunks",
-	"write_chunks",
-	"reply_chunks",
-	"total_rdma_req",
-	"total_rdma_rep",
-	"pullup",
-	"fixup",
-	"hardway",
-	"failed_marshal",
-	"bad_reply"
-};
-#define NB_NFS_XPRT_RDMA (sizeof(nfs_xprt_rdma)/sizeof(*nfs_xprt_rdma))
-
-#define MAX3(x,y,z) ( \
-	( (((x)>(y)) ? (x):(y)) > (z) ) \
-	? (((x)>(y)) ? (x):(y)) : (z) \
-	)
-#define NB_NFS_XPRT_ANY (MAX3(NB_NFS_XPRT_UDP,NB_NFS_XPRT_TCP,NB_NFS_XPRT_RDMA))
-
-/* Per op statistics : metrics :
-metrics->om_ops,
-metrics->om_ntrans,
-metrics->om_timeouts,
-metrics->om_bytes_sent,
-metrics->om_bytes_recv,
-ktime_to_ms(metrics->om_queue),
-ktime_to_ms(metrics->om_rtt),
-ktime_to_ms(metrics->om_execute));
-*/
-
-#define NEXT_NON_SPACE_CHAR(s) do { \
-		while((s)[0] && (((s)[0] == ' ') || (s)[0] == '\t')) (s)++; \
-	} while(0)
-
-typedef enum {
-	nfs_xprt_type_tcp,
-	nfs_xprt_type_udp,
-	nfs_xprt_type_rdma
-} nfs_xprt_type_e;
-
-typedef struct {
-	char op_name[1024];
-	unsigned long long op[8];
-} nfs_per_op_statistic_t;
-
-typedef struct {
-	char *mountpoint;
-	time_t age;
-	unsigned long long events[NB_NFS_EVENT_COUNTERS];
-	unsigned long long bytes[NB_NFS_BYTE_COUNTERS];
-	nfs_xprt_type_e xprt_type;
-	unsigned long long xprt[NB_NFS_XPRT_ANY];
-	nfs_per_op_statistic_t *op;
-	int nb_op;
-	int size_op;
-} mountstats_t;
-
-typedef enum {
-	psm_state_start,
-	psm_state_check_device,
-	psm_state_device_nfs,
-	psm_state_device_nfs_per_opt_stats
-} proc_self_mountstats_state_e;
 
 void clear_mountstats(mountstats_t *m) {
 	if(m->mountpoint) free(m->mountpoint);
