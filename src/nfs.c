@@ -24,6 +24,7 @@
 #include "collectd.h"
 #include "common.h"
 #include "plugin.h"
+#include "utils_avltree.h"
 
 #if KERNEL_LINUX
 #include <sys/utsname.h>
@@ -32,6 +33,22 @@
 #if HAVE_KSTAT_H
 #include <kstat.h>
 #endif
+
+/* Config defs */
+static c_avl_tree_t *config_mountpoints = NULL;
+
+/* about nfs_mountpoints_config_t->perop_statistics/perop_statistics_string
+ * perop_statistics_string == NULL : no per-op statistics.
+ * perop_statistics_string != NULL && perop_statistics == NULL : all per-op statistics
+ * perop_statistics_string != NULL && perop_statistics != NULL : see the contents of perop_statistics tree
+ */
+
+typedef struct {
+	time_t min_age;
+	c_avl_tree_t *perop_statistics; /* NULL means : either all or none. check perop_statistics_string */
+	char *perop_statistics_string; /* NULL means none. If not null, check perop_statistics */
+	short show;
+} nfs_mountpoints_config_t;
 
 /*
 see /proc/net/rpc/nfs
@@ -470,9 +487,24 @@ static void mountstats_initialize_value_list(value_list_t *vl, mountstats_t *m, 
 }
 
 static void mountstats_submit (mountstats_t *m) {
+	nfs_mountpoints_config_t *config_item;
 	value_list_t vl = VALUE_LIST_INIT;
 	size_t i;
 	value_t values[MAX3(NB_NFS_BYTE_COUNTERS,NB_NFS_EVENT_COUNTERS, NB_NFS_XPRT_ANY)];
+
+	if(0 != c_avl_get(config_mountpoints, m->mountpoint, (void**)&config_item)) {
+		int r;
+		r = c_avl_get(config_mountpoints, "all", (void**)&config_item);
+		assert(r == 0);
+	}
+
+	if(0 == config_item->show) {
+		return;
+	}
+
+	if((m->age < config_item->min_age) && (config_item->min_age != 0)) {
+		return;
+	}
 
 	/* type : age */
 	mountstats_initialize_value_list(&vl, m, "uptime");
@@ -526,18 +558,27 @@ static void mountstats_submit (mountstats_t *m) {
 	vl.values = values;
 	plugin_dispatch_values (&vl);
 
-	/* type : perop */
-	for(i=0; i<m->nb_op; i++) {
-		int j;
-		mountstats_initialize_value_list(&vl, m, "nfsclient_perop");
-		sstrncpy (vl.type_instance, m->op[i].op_name, sizeof (vl.type_instance));
-		vl.values_len = 8;
-		for(j=0; j<vl.values_len; j++) {
-			values[j].counter = m->op[i].op[j];
-		}
+	if(config_item->perop_statistics_string && (config_item->perop_statistics_string[0] != '\0')) {
+		/* type : perop */
+		for(i=0; i<m->nb_op; i++) {
+			int j;
+			void *v;
+			if(
+					(NULL == config_item->perop_statistics) ||
+					c_avl_get(config_item->perop_statistics,  m->op[i].op_name, &v)
+			  ) { 
+				continue;
+			}
+			mountstats_initialize_value_list(&vl, m, "nfsclient_perop");
+			sstrncpy (vl.type_instance, m->op[i].op_name, sizeof (vl.type_instance));
+			vl.values_len = 8;
+			for(j=0; j<vl.values_len; j++) {
+				values[j].counter = m->op[i].op[j];
+			}
 
-		vl.values = values;
-		plugin_dispatch_values (&vl);
+			vl.values = values;
+			plugin_dispatch_values (&vl);
+		}
 	}
 
 } /* void mountstats_submit */
@@ -586,6 +627,7 @@ int parse_proc_self_mountstats(void) {
 		int i = 0;
 		char *str;
 		char *nfsdir=NULL;
+		char *nfsdir_end=NULL;
 
 		/* Check if this line is starting with "device"
 		 * If yes, reset the state and dispatch the previously parsed
@@ -625,6 +667,7 @@ int parse_proc_self_mountstats(void) {
 					parse_error = 1;
 					goto an_error_happened;
 				}
+				nfsdir_end = str;
 				str += sizeof(" with fstype ")-1;
 				NEXT_NON_SPACE_CHAR(str); /* remove extra spaces */
 				if(strncmp(str,"nfs", 3)) {
@@ -646,8 +689,14 @@ int parse_proc_self_mountstats(void) {
 					parse_error = 1;
 					goto an_error_happened;
 				}
+#ifdef comment_this_is_old_code_to_be_removed
 				while((((str[0] == ' ') || str[0] == '\t')) && (str > nfsdir)) str--; /* remove extra spaces */
 				str[1] = '\0';
+				mountstats.mountpoint = strdup(nfsdir); /* Keep a copy as nfsdir was a pointer to the buffer */
+#endif
+				nfsdir = str + sizeof(" mounted on ") - 1;
+				NEXT_NON_SPACE_CHAR(nfsdir);
+				nfsdir_end[0] = '\0';
 				mountstats.mountpoint = strdup(nfsdir); /* Keep a copy as nfsdir was a pointer to the buffer */
 				if(NULL == mountstats.mountpoint) {
 					ERROR("nfs plugin : out of memory");
@@ -928,7 +977,6 @@ static int nfs_read_kstat (kstat_t *ksp, int nfs_version, char *inst,
 static int nfs_read (void)
 {
 	FILE *fh;
-INFO("nfs plugin : Starting read callback (%s %s)", __DATE__, __TIME__);
 
 	if ((fh = fopen ("/proc/net/rpc/nfs", "r")) != NULL)
 	{
@@ -942,9 +990,7 @@ INFO("nfs plugin : Starting read callback (%s %s)", __DATE__, __TIME__);
 		fclose (fh);
 	}
 
-INFO("nfs plugin : start parse_proc_self_mountstats()");
 	if(proc_self_mountstats_is_available) parse_proc_self_mountstats();
-INFO("nfs plugin : end parse_proc_self_mountstats()");
 	return (0);
 }
 /* #endif KERNEL_LINUX */
@@ -969,9 +1015,204 @@ static int nfs_read (void)
 }
 #endif /* HAVE_LIBKSTAT */
 
+
+/* Deconfigure */
+static int nfs_deconfig_cb (void) {
+	if(config_mountpoints) {
+		void *key;
+		void *value;
+		while (c_avl_pick (config_mountpoints, &key, &value) == 0) {
+			free (key);
+			if(((nfs_mountpoints_config_t*)value)->perop_statistics) {
+				void *k;
+				void *v;
+				while(c_avl_pick(((nfs_mountpoints_config_t*)value)->perop_statistics, &k, &v) == 0) /* nothing to free here */;
+				c_avl_destroy (((nfs_mountpoints_config_t*)value)->perop_statistics);
+			}
+			if(((nfs_mountpoints_config_t*)value)->perop_statistics_string) {
+				free(((nfs_mountpoints_config_t*)value)->perop_statistics_string);
+			}
+			free (value);
+		}
+		c_avl_destroy (config_mountpoints);
+		config_mountpoints = NULL;
+	}
+
+	return(0);
+}
+
+static int nfs_mountpoints_config_parse_perop_statistics(char *str, nfs_mountpoints_config_t* item) {
+	if(!strcmp(str, "all")) {
+		if(NULL == (item->perop_statistics_string = strdup("all"))) {
+			item->perop_statistics = NULL;
+			item->perop_statistics_string = NULL;
+			return(-1);
+		}
+		item->perop_statistics = NULL;
+	} else if(str[0] == '\0') {
+		item->perop_statistics = NULL;
+		item->perop_statistics_string = NULL;
+	} else {
+		char *s1,*s2;
+		int is_not_last = 1;
+
+		if(NULL == (item->perop_statistics = c_avl_create((void*) strcmp))) {
+			item->perop_statistics = NULL;
+			item->perop_statistics_string = NULL;
+			return(-1);
+		}
+		if(NULL == (item->perop_statistics_string = strdup(str))) {
+			c_avl_destroy(item->perop_statistics);
+			item->perop_statistics = NULL;
+			item->perop_statistics_string = NULL;
+			return(-1);
+		}
+		s1 = item->perop_statistics_string;
+		s2 = s1;
+		while(is_not_last) {
+			while(s1[0] && ((s1[0] == ' ') || (s1[0] == '\t') || (s1[0] == ',') || (s1[0] == ';'))) s1++;
+			if('\0' == s1[0]) break;
+			s2 = s1;
+			while(s2[0] && (s2[0] != ' ') && (s2[0] != '\t') && (s2[0] != ',') && (s2[0] != ';')) s2++;
+			if('\0' == s2[0]) is_not_last = 0;
+			s2[0] = '\0';
+			c_avl_insert(item->perop_statistics, s1,s1);
+			s1 = s2+1;
+		}
+	}
+	return(0);
+}
+
+static int config_nfs_mountpoint_add(oconfig_item_t *ci) {
+	nfs_mountpoints_config_t *item;
+	char *key;
+	int i;
+	int status = 0;
+	void *dummy;
+
+	if ((ci->values_num != 1) || (ci->values[0].type != OCONFIG_TYPE_STRING))
+	{
+		WARNING ("nfs plugin: 'Mountpoint' needs exactly one string argument.");
+		return (-1);
+	}
+
+	if(0 == c_avl_get(config_mountpoints, ci->values[0].value.string, &dummy)) {
+		WARNING ("nfs plugin: 'Mountpoint' %s defined twice (ignoring this occurrence)", ci->values[0].value.string);
+		return(0);
+	}
+
+	if(NULL == (item = calloc(1, sizeof(*item)))) {
+		ERROR ("nfs plugin: not enough memory");
+		return(-1);
+	}
+	if(NULL == (key = strdup(ci->values[0].value.string))) {
+		free(item);
+		ERROR ("nfs plugin: not enough memory");
+		return(-1);
+	}
+	item->min_age = 0;
+	item->perop_statistics = NULL;
+	item->perop_statistics_string = NULL;
+	item->show = 1;
+
+	for (i = 0; i < ci->children_num; i++)
+	{
+		oconfig_item_t *child = ci->children + i;
+		if (strcasecmp ("min_age", child->key) == 0) {
+			if (child->values[0].type != OCONFIG_TYPE_NUMBER) {
+				WARNING ("nfs plugin:  'min_age' needs exactly one int (time) argument.");
+				status = -1;
+				break;
+			} else {
+				item->min_age = child->values[0].value.number;
+			}
+		} else if (strcasecmp ("perop_statistics", child->key) == 0) {
+			if (child->values[0].type != OCONFIG_TYPE_STRING) {
+				WARNING ("nfs plugin:  'perop_statistics' needs exactly one string (csv list) argument.");
+				status = -1;
+				break;
+			} else {
+				if(nfs_mountpoints_config_parse_perop_statistics(child->values[0].value.string, item)) {
+					ERROR ("nfs plugin: out of memory (while configuring %s)", child->values[0].value.string);
+					status = -1;
+					break;
+				}
+			}
+		} else if (strcasecmp ("show", child->key) == 0) {
+			if (child->values[0].type != OCONFIG_TYPE_BOOLEAN) {
+				WARNING ("nfs plugin:  'min_age' needs exactly one boolean argument.");
+				status = -1;
+				break;
+			} else {
+				item->show = child->values[0].value.boolean;
+			}
+		} else {
+			WARNING ("nfs plugin: Ignoring unknown config option `%s'.", child->key);
+		}
+	} /* for (ci->children) */
+
+	if(-1 == status) { /* something wrong happened - free the item */
+		if(item->perop_statistics) {
+			void *k;
+			void *v;
+			while(c_avl_pick(item->perop_statistics, &k, &v) == 0) /* nothing to free here */;
+			c_avl_destroy (item->perop_statistics);
+		}
+		if(item->perop_statistics_string) {
+			free(item->perop_statistics_string);
+		}
+		free(item);
+		free(key);
+		return(-1);
+	}
+
+	/* OK, insert the item into the config */
+	c_avl_insert(config_mountpoints, key, item);
+	return(0);
+}
+
+static int nfs_config_cb (oconfig_item_t *ci) {
+	int i;
+	void *dummy;
+
+	assert(config_mountpoints == NULL);
+	config_mountpoints = c_avl_create((void *) strcmp);
+
+	for (i = 0; i < ci->children_num; i++)
+	{
+		oconfig_item_t *child = ci->children + i;
+		if (strcasecmp ("mountpoint", child->key) == 0) {
+			if(0 != config_nfs_mountpoint_add (child)) {
+				nfs_deconfig_cb();
+				return(-1);
+			}
+		}
+		else
+		{
+			WARNING ("nfs plugin: Ignoring unknown config option `%s'.", child->key);
+		}
+	} /* for (ci->children) */
+
+	if(0 != c_avl_get(config_mountpoints, ci->values[0].value.string, &dummy)) {
+		nfs_mountpoints_config_t *item;
+		if(NULL == (item = calloc(1, sizeof(*item)))) {
+			ERROR("nfs plugin : out of memory");
+			nfs_deconfig_cb();
+			return(-1);
+		}
+		item->show = 1;                       /* default : keep the statistics */
+		item->min_age = 3600;                 /* default : do not record before 1 hour */
+		item->perop_statistics= NULL;         /* default : do not record per-op statistics */
+		item->perop_statistics_string = NULL; /* default : do not record per-op statistics */
+	}
+
+	return (0);	
+}
+
 void module_register (void)
 {
 	plugin_register_init ("nfs", nfs_init);
+	plugin_register_complex_config ("nfs", nfs_config_cb);
 	plugin_register_read ("nfs", nfs_read);
 } /* void module_register */
 /* vim: set sw=4 ts=4 tw=78 noexpandtab : */
