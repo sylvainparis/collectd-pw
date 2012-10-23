@@ -515,7 +515,7 @@ static int nfs_config_cb (oconfig_item_t *ci) {
 			}
 		} else if (strcasecmp ("enable_client_stats_per_mountpoint", child->key) == 0) {
 			if (child->values[0].type != OCONFIG_TYPE_BOOLEAN) {
-				WARNING ("nfs plugin:  '"enable_client_stats_per_mountpoint"' needs exactly one boolean argument.");
+				WARNING ("nfs plugin:  'enable_client_stats_per_mountpoint' needs exactly one boolean argument.");
 				nfs_deconfig_cb();
 				return(-1);
 			} else {
