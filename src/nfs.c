@@ -42,12 +42,16 @@ static short enable_client_stats_per_mountpoint = 0;
  * perop_statistics_string == NULL : no per-op statistics.
  * perop_statistics_string != NULL && perop_statistics == NULL : all per-op statistics
  * perop_statistics_string != NULL && perop_statistics != NULL : see the contents of perop_statistics tree
+ *
+ * This is the same for perop_iostats.
  */
 
 typedef struct {
 	time_t min_age;
 	c_avl_tree_t *perop_statistics; /* NULL means : either all or none. check perop_statistics_string */
 	char *perop_statistics_string; /* NULL means none. If not null, check perop_statistics */
+	c_avl_tree_t *perop_iostats; /* NULL means : either all or none. check perop_iostats_string */
+	char *perop_iostats_string; /* NULL means none. If not null, check perop_iostats */
 	short enable;
 } nfs_mountpoints_config_t;
 
@@ -360,6 +364,15 @@ static int nfs_deconfig_cb (void) {
 			if(((nfs_mountpoints_config_t*)value)->perop_statistics_string) {
 				free(((nfs_mountpoints_config_t*)value)->perop_statistics_string);
 			}
+			if(((nfs_mountpoints_config_t*)value)->perop_iostats) {
+				void *k;
+				void *v;
+				while(c_avl_pick(((nfs_mountpoints_config_t*)value)->perop_iostats, &k, &v) == 0) /* nothing to free here */;
+				c_avl_destroy (((nfs_mountpoints_config_t*)value)->perop_iostats);
+			}
+			if(((nfs_mountpoints_config_t*)value)->perop_iostats_string) {
+				free(((nfs_mountpoints_config_t*)value)->perop_iostats_string);
+			}
 			free (value);
 		}
 		c_avl_destroy (config_mountpoints);
@@ -369,33 +382,33 @@ static int nfs_deconfig_cb (void) {
 	return(0);
 }
 
-static int nfs_mountpoints_config_parse_perop_statistics(char *str, nfs_mountpoints_config_t* item) {
+static int nfs_mountpoints_config_parse_perop_string(char *str, c_avl_tree_t **result_tree, char **result_string) {
 	if(!strcmp(str, "all")) {
-		if(NULL == (item->perop_statistics_string = strdup("all"))) {
-			item->perop_statistics = NULL;
-			item->perop_statistics_string = NULL;
+		if(NULL == (*result_string = strdup("all"))) {
+			*result_tree = NULL;
+			*result_string = NULL;
 			return(-1);
 		}
-		item->perop_statistics = NULL;
+		*result_tree = NULL;
 	} else if(str[0] == '\0') {
-		item->perop_statistics = NULL;
-		item->perop_statistics_string = NULL;
+		*result_tree = NULL;
+		*result_string = NULL;
 	} else {
 		char *s1,*s2;
 		int is_not_last = 1;
 
-		if(NULL == (item->perop_statistics = c_avl_create((void*) strcmp))) {
-			item->perop_statistics = NULL;
-			item->perop_statistics_string = NULL;
+		if(NULL == (*result_tree = c_avl_create((void*) strcmp))) {
+			*result_tree = NULL;
+			*result_string = NULL;
 			return(-1);
 		}
-		if(NULL == (item->perop_statistics_string = strdup(str))) {
-			c_avl_destroy(item->perop_statistics);
-			item->perop_statistics = NULL;
-			item->perop_statistics_string = NULL;
+		if(NULL == (*result_string = strdup(str))) {
+			c_avl_destroy(*result_tree);
+			*result_tree = NULL;
+			*result_string = NULL;
 			return(-1);
 		}
-		s1 = item->perop_statistics_string;
+		s1 = *result_string;
 		s2 = s1;
 		while(is_not_last) {
 			while(s1[0] && ((s1[0] == ' ') || (s1[0] == '\t') || (s1[0] == ',') || (s1[0] == ';'))) s1++;
@@ -404,7 +417,7 @@ static int nfs_mountpoints_config_parse_perop_statistics(char *str, nfs_mountpoi
 			while(s2[0] && (s2[0] != ' ') && (s2[0] != '\t') && (s2[0] != ',') && (s2[0] != ';')) s2++;
 			if('\0' == s2[0]) is_not_last = 0;
 			s2[0] = '\0';
-			c_avl_insert(item->perop_statistics, s1,s1);
+			c_avl_insert(*result_tree, s1,s1);
 			s1 = s2+1;
 		}
 	}
@@ -441,6 +454,8 @@ static int config_nfs_mountpoint_add(oconfig_item_t *ci) {
 	item->min_age = 0;
 	item->perop_statistics = NULL;
 	item->perop_statistics_string = NULL;
+	item->perop_iostats = NULL;
+	item->perop_iostats_string = NULL;
 	item->enable = 1;
 
 	for (i = 0; i < ci->children_num; i++)
@@ -454,13 +469,25 @@ static int config_nfs_mountpoint_add(oconfig_item_t *ci) {
 			} else {
 				item->min_age = child->values[0].value.number;
 			}
+		} else if (strcasecmp ("perop_iostats", child->key) == 0) {
+			if (child->values[0].type != OCONFIG_TYPE_STRING) {
+				WARNING ("nfs plugin:  'perop_iostats' needs exactly one string (csv list) argument.");
+				status = -1;
+				break;
+			} else {
+				if(nfs_mountpoints_config_parse_perop_string(child->values[0].value.string, &(item->perop_iostats), &(item->perop_iostats_string))) {
+					ERROR ("nfs plugin: out of memory (while configuring %s)", child->values[0].value.string);
+					status = -1;
+					break;
+				}
+			}
 		} else if (strcasecmp ("perop_statistics", child->key) == 0) {
 			if (child->values[0].type != OCONFIG_TYPE_STRING) {
 				WARNING ("nfs plugin:  'perop_statistics' needs exactly one string (csv list) argument.");
 				status = -1;
 				break;
 			} else {
-				if(nfs_mountpoints_config_parse_perop_statistics(child->values[0].value.string, item)) {
+				if(nfs_mountpoints_config_parse_perop_string(child->values[0].value.string, &(item->perop_statistics), &(item->perop_statistics_string))) {
 					ERROR ("nfs plugin: out of memory (while configuring %s)", child->values[0].value.string);
 					status = -1;
 					break;
@@ -488,6 +515,15 @@ static int config_nfs_mountpoint_add(oconfig_item_t *ci) {
 		}
 		if(item->perop_statistics_string) {
 			free(item->perop_statistics_string);
+		}
+		if(item->perop_iostats) {
+			void *k;
+			void *v;
+			while(c_avl_pick(item->perop_iostats, &k, &v) == 0) /* nothing to free here */;
+			c_avl_destroy (item->perop_iostats);
+		}
+		if(item->perop_iostats_string) {
+			free(item->perop_iostats_string);
 		}
 		free(item);
 		free(key);
@@ -627,6 +663,8 @@ static int is_proc_self_mountstats_available (void)
 		item->min_age = 3600;                 /* default : do not record before 1 hour */
 		item->perop_statistics= NULL;         /* default : do not record per-op statistics */
 		item->perop_statistics_string = NULL; /* default : do not record per-op statistics */
+		item->perop_iostats= NULL;         /* default : do not record iostats statistics */
+		item->perop_iostats_string = NULL; /* default : do not record iostats statistics */
 		c_avl_insert(config_mountpoints, str, item);
 	}
 
