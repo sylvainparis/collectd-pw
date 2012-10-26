@@ -1186,6 +1186,8 @@ static int rrd_init (void)
 		return (0);
 	init_once = 1;
 
+	if(!createrrdonly) plugin_register_flush ("rrdtool", rrd_flush, /* user_data = */ NULL);
+
 	if (rrdcreate_config.heartbeat <= 0)
 		rrdcreate_config.heartbeat = 2 * rrdcreate_config.stepsize;
 
@@ -1246,6 +1248,5 @@ void module_register (void)
 			config_keys, config_keys_num);
 	plugin_register_init ("rrdtool", rrd_init);
 	plugin_register_write ("rrdtool", rrd_write, /* user_data = */ NULL);
-	if(!createrrdonly) plugin_register_flush ("rrdtool", rrd_flush, /* user_data = */ NULL);
 	plugin_register_shutdown ("rrdtool", rrd_shutdown);
 }
