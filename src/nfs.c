@@ -38,20 +38,8 @@
 static c_avl_tree_t *config_mountpoints = NULL;
 static short enable_client_stats_per_mountpoint = 0;
 
-/* about nfs_mountpoints_config_t->perop_statistics/perop_statistics_string
- * perop_statistics_string == NULL : no per-op statistics.
- * perop_statistics_string != NULL && perop_statistics == NULL : all per-op statistics
- * perop_statistics_string != NULL && perop_statistics != NULL : see the contents of perop_statistics tree
- *
- * This is the same for perop_iostats.
- */
-
 typedef struct {
 	time_t min_age;
-	c_avl_tree_t *perop_statistics; /* NULL means : either all or none. check perop_statistics_string */
-	char *perop_statistics_string; /* NULL means none. If not null, check perop_statistics */
-	c_avl_tree_t *perop_iostats; /* NULL means : either all or none. check perop_iostats_string */
-	char *perop_iostats_string; /* NULL means none. If not null, check perop_iostats */
 	short enable;
 } nfs_mountpoints_config_t;
 
@@ -340,6 +328,8 @@ typedef struct {
 	int size_op;
 } mountstats_t;
 
+static c_avl_tree_t *mountstats_per_mountpoint = NULL;
+
 typedef enum {
 	psm_state_start,
 	psm_state_check_device,
@@ -355,72 +345,12 @@ static int nfs_deconfig_cb (void) {
 		void *value;
 		while (c_avl_pick (config_mountpoints, &key, &value) == 0) {
 			free (key);
-			if(((nfs_mountpoints_config_t*)value)->perop_statistics) {
-				void *k;
-				void *v;
-				while(c_avl_pick(((nfs_mountpoints_config_t*)value)->perop_statistics, &k, &v) == 0) /* nothing to free here */;
-				c_avl_destroy (((nfs_mountpoints_config_t*)value)->perop_statistics);
-			}
-			if(((nfs_mountpoints_config_t*)value)->perop_statistics_string) {
-				free(((nfs_mountpoints_config_t*)value)->perop_statistics_string);
-			}
-			if(((nfs_mountpoints_config_t*)value)->perop_iostats) {
-				void *k;
-				void *v;
-				while(c_avl_pick(((nfs_mountpoints_config_t*)value)->perop_iostats, &k, &v) == 0) /* nothing to free here */;
-				c_avl_destroy (((nfs_mountpoints_config_t*)value)->perop_iostats);
-			}
-			if(((nfs_mountpoints_config_t*)value)->perop_iostats_string) {
-				free(((nfs_mountpoints_config_t*)value)->perop_iostats_string);
-			}
 			free (value);
 		}
 		c_avl_destroy (config_mountpoints);
 		config_mountpoints = NULL;
 	}
 
-	return(0);
-}
-
-static int nfs_mountpoints_config_parse_perop_string(char *str, c_avl_tree_t **result_tree, char **result_string) {
-	if(!strcmp(str, "all")) {
-		if(NULL == (*result_string = strdup("all"))) {
-			*result_tree = NULL;
-			*result_string = NULL;
-			return(-1);
-		}
-		*result_tree = NULL;
-	} else if(str[0] == '\0') {
-		*result_tree = NULL;
-		*result_string = NULL;
-	} else {
-		char *s1,*s2;
-		int is_not_last = 1;
-
-		if(NULL == (*result_tree = c_avl_create((void*) strcmp))) {
-			*result_tree = NULL;
-			*result_string = NULL;
-			return(-1);
-		}
-		if(NULL == (*result_string = strdup(str))) {
-			c_avl_destroy(*result_tree);
-			*result_tree = NULL;
-			*result_string = NULL;
-			return(-1);
-		}
-		s1 = *result_string;
-		s2 = s1;
-		while(is_not_last) {
-			while(s1[0] && ((s1[0] == ' ') || (s1[0] == '\t') || (s1[0] == ',') || (s1[0] == ';'))) s1++;
-			if('\0' == s1[0]) break;
-			s2 = s1;
-			while(s2[0] && (s2[0] != ' ') && (s2[0] != '\t') && (s2[0] != ',') && (s2[0] != ';')) s2++;
-			if('\0' == s2[0]) is_not_last = 0;
-			s2[0] = '\0';
-			c_avl_insert(*result_tree, s1,s1);
-			s1 = s2+1;
-		}
-	}
 	return(0);
 }
 
@@ -452,10 +382,6 @@ static int config_nfs_mountpoint_add(oconfig_item_t *ci) {
 		return(-1);
 	}
 	item->min_age = 0;
-	item->perop_statistics = NULL;
-	item->perop_statistics_string = NULL;
-	item->perop_iostats = NULL;
-	item->perop_iostats_string = NULL;
 	item->enable = 1;
 
 	for (i = 0; i < ci->children_num; i++)
@@ -468,30 +394,6 @@ static int config_nfs_mountpoint_add(oconfig_item_t *ci) {
 				break;
 			} else {
 				item->min_age = child->values[0].value.number;
-			}
-		} else if (strcasecmp ("perop_iostats", child->key) == 0) {
-			if (child->values[0].type != OCONFIG_TYPE_STRING) {
-				WARNING ("nfs plugin:  'perop_iostats' needs exactly one string (csv list) argument.");
-				status = -1;
-				break;
-			} else {
-				if(nfs_mountpoints_config_parse_perop_string(child->values[0].value.string, &(item->perop_iostats), &(item->perop_iostats_string))) {
-					ERROR ("nfs plugin: out of memory (while configuring %s)", child->values[0].value.string);
-					status = -1;
-					break;
-				}
-			}
-		} else if (strcasecmp ("perop_statistics", child->key) == 0) {
-			if (child->values[0].type != OCONFIG_TYPE_STRING) {
-				WARNING ("nfs plugin:  'perop_statistics' needs exactly one string (csv list) argument.");
-				status = -1;
-				break;
-			} else {
-				if(nfs_mountpoints_config_parse_perop_string(child->values[0].value.string, &(item->perop_statistics), &(item->perop_statistics_string))) {
-					ERROR ("nfs plugin: out of memory (while configuring %s)", child->values[0].value.string);
-					status = -1;
-					break;
-				}
 			}
 		} else if (strcasecmp ("enable", child->key) == 0) {
 			if (child->values[0].type != OCONFIG_TYPE_BOOLEAN) {
@@ -507,24 +409,6 @@ static int config_nfs_mountpoint_add(oconfig_item_t *ci) {
 	} /* for (ci->children) */
 
 	if(-1 == status) { /* something wrong happened - free the item */
-		if(item->perop_statistics) {
-			void *k;
-			void *v;
-			while(c_avl_pick(item->perop_statistics, &k, &v) == 0) /* nothing to free here */;
-			c_avl_destroy (item->perop_statistics);
-		}
-		if(item->perop_statistics_string) {
-			free(item->perop_statistics_string);
-		}
-		if(item->perop_iostats) {
-			void *k;
-			void *v;
-			while(c_avl_pick(item->perop_iostats, &k, &v) == 0) /* nothing to free here */;
-			c_avl_destroy (item->perop_iostats);
-		}
-		if(item->perop_iostats_string) {
-			free(item->perop_iostats_string);
-		}
 		free(item);
 		free(key);
 		return(-1);
@@ -661,10 +545,6 @@ static int is_proc_self_mountstats_available (void)
 		}
 		item->enable = 1;                       /* default : keep the statistics */
 		item->min_age = 3600;                 /* default : do not record before 1 hour */
-		item->perop_statistics= NULL;         /* default : do not record per-op statistics */
-		item->perop_statistics_string = NULL; /* default : do not record per-op statistics */
-		item->perop_iostats= NULL;         /* default : do not record iostats statistics */
-		item->perop_iostats_string = NULL; /* default : do not record iostats statistics */
 		c_avl_insert(config_mountpoints, str, item);
 	}
 
@@ -745,11 +625,15 @@ static void mountstats_initialize_value_list(value_list_t *vl, mountstats_t *m, 
 	vl->type_instance[0] = '\0';
 }
 
-static void mountstats_submit (mountstats_t *m) {
+static void mountstats_compute_and_submit (mountstats_t *m, mountstats_t *oldm) {
+#define NFS_OPERATIONS_NB 2
 	nfs_mountpoints_config_t *config_item;
 	value_list_t vl = VALUE_LIST_INIT;
 	size_t i;
 	value_t values[MAX3(NB_NFS_BYTE_COUNTERS,NB_NFS_EVENT_COUNTERS, NB_NFS_XPRT_ANY)];
+	unsigned long long rpcsends, backlogutil, ops_since_last_time[NFS_OPERATIONS_NB];
+	derive_t sends, backlog, ops[NFS_OPERATIONS_NB], kilobytes[NFS_OPERATIONS_NB];
+	gauge_t retrans[NFS_OPERATIONS_NB], kb_per_op[NFS_OPERATIONS_NB], rtt_per_op[NFS_OPERATIONS_NB], exe_per_op[NFS_OPERATIONS_NB];
 
 	if(0 != c_avl_get(config_mountpoints, m->mountpoint, (void**)&config_item)) {
 		int r;
@@ -765,88 +649,213 @@ static void mountstats_submit (mountstats_t *m) {
 		return;
 	}
 
-	/* type : age */
-	mountstats_initialize_value_list(&vl, m, "uptime");
-	vl.values = values;
-	vl.values_len = 1;
-	values[0].gauge = m->age;
-	plugin_dispatch_values (&vl);
-
-	/* type : events */
-	mountstats_initialize_value_list(&vl, m, "nfsclient_events");
-	vl.values = values;
-	vl.values_len = NB_NFS_EVENT_COUNTERS;
-	for(i=0; i<NB_NFS_EVENT_COUNTERS; i++) {
-		values[i].counter = m->events[i];
-	}
-	plugin_dispatch_values (&vl);
-
-	/* type : bytes */
-	mountstats_initialize_value_list(&vl, m, "nfsclient_bytes");
-	vl.values = values;
-	vl.values_len = NB_NFS_BYTE_COUNTERS;
-	for(i=0; i<NB_NFS_BYTE_COUNTERS; i++) {
-		values[i].counter = m->bytes[i];
-	}
-	plugin_dispatch_values(&vl);
-
-	/* type : xprt */
 	switch(m->xprt_type) {
 		case nfs_xprt_type_udp :
-			mountstats_initialize_value_list(&vl, m, "nfsclient_xprtudp");
-			vl.values_len = NB_NFS_XPRT_UDP;
-			for(i=0; i<NB_NFS_XPRT_UDP; i++) {
-				values[i].counter = m->xprt[i];
-			}
+			rpcsends = m->xprt[2] - oldm->xprt[2];
+			backlogutil = m->xprt[6] - oldm->xprt[6];
 			break;
 		case nfs_xprt_type_tcp :
-			mountstats_initialize_value_list(&vl, m, "nfsclient_xprttcp");
-			vl.values_len = NB_NFS_XPRT_TCP;
-			for(i=0; i<NB_NFS_XPRT_TCP; i++) {
-				values[i].counter = m->xprt[i];
-			}
+			rpcsends = m->xprt[5] - oldm->xprt[5];
+			backlogutil = m->xprt[9] - oldm->xprt[9];
 			break;
 		case nfs_xprt_type_rdma :
-			mountstats_initialize_value_list(&vl, m, "nfsclient_xprtrdma");
-			vl.values_len = NB_NFS_XPRT_RDMA;
-			for(i=0; i<NB_NFS_XPRT_RDMA; i++) {
-				values[i].counter = m->xprt[i];
-			}
+			rpcsends = m->xprt[5] - oldm->xprt[5];
+			backlogutil = m->xprt[8] - oldm->xprt[8];
 			break;
+		default :
+			return; /* wrong type : cannot do anything */
 	}
+	sends = rpcsends;
+	backlog = backlogutil/rpcsends;
+	for(i=0; i<NFS_OPERATIONS_NB; i++) {
+	/* i=0 -> READ
+	 * i=1 -> WRITE
+	 */
+		size_t j;
+		size_t i1,i2;
+		i1=i2=-1;
+		
+		/* Find i1 as m->op[i1].op_name == "READ" or "WRITE" (depends on i) */
+		for(j=0; j<m->nb_op; j++) {
+			if(
+					((i == 0) && (!strcmp("READ", m->op[j].op_name)))
+					||
+					((i == 1) && (!strcmp("WRITE", m->op[j].op_name)))
+			  ) {
+				i1 = j;
+				break;
+			}
+		}
+		/* Find i2 as oldm->op[i2].op_name == "READ" or "WRITE" (depends on i) */
+		for(j=0; j<oldm->nb_op; j++) {
+			if(
+					((i == 0) && (!strcmp("READ", oldm->op[j].op_name)))
+					||
+					((i == 1) && (!strcmp("WRITE", oldm->op[j].op_name)))
+			  ) {
+				i2 = j;
+				break;
+			}
+		}
+		if(i1 == -1) return;
+		if(i2 == -1) return;
+
+		/* derive  */ ops[i] = m->op[i1].op[0];
+		/* integer */ ops_since_last_time[i] = m->op[i1].op[0] - oldm->op[i2].op[0];
+		/* gauge   */ retrans[i] = (m->op[i1].op[1] - oldm->op[i2].op[1]) - (m->op[i1].op[0] - oldm->op[i2].op[0]);
+		/* derive  */ kilobytes[i] = ((m->op[i1].op[3] - oldm->op[i2].op[3]) + (m->op[i1].op[4] - oldm->op[i2].op[4])) / 1024;
+		if(ops_since_last_time[i]) {
+			/* gauge   */ kb_per_op[i] = kilobytes[i] / ops_since_last_time[i];
+			/* gauge   */ rtt_per_op[i] = (m->op[i1].op[6] - oldm->op[i2].op[6]) / ops_since_last_time[i];
+			/* gauge   */ exe_per_op[i] = (m->op[i1].op[7] - oldm->op[i2].op[7]) / ops_since_last_time[i];
+		} else {
+			/* gauge   */ kb_per_op[i] = 0;
+			/* gauge   */ rtt_per_op[i] = 0;
+			/* gauge   */ exe_per_op[i] = 0;
+		}
+
+	}
+
+	/* type : sends */
+	mountstats_initialize_value_list(&vl, m, "nfsclient_sends");
 	vl.values = values;
+	vl.values_len = 1;
+	values[0].derive = sends;
 	plugin_dispatch_values (&vl);
 
-	if(config_item->perop_statistics_string && (config_item->perop_statistics_string[0] != '\0')) {
-		/* type : perop */
-		for(i=0; i<m->nb_op; i++) {
-			int j;
-			void *v;
-			if(
-					(NULL == config_item->perop_statistics) ||
-					c_avl_get(config_item->perop_statistics,  m->op[i].op_name, &v)
-			  ) { 
-				continue;
-			}
-			mountstats_initialize_value_list(&vl, m, "nfsclient_perop");
-			sstrncpy (vl.type_instance, m->op[i].op_name, sizeof (vl.type_instance));
-			vl.values_len = 8;
-			for(j=0; j<vl.values_len; j++) {
-				values[j].counter = m->op[i].op[j];
-			}
+	/* type : backlog */
+	mountstats_initialize_value_list(&vl, m, "nfsclient_backlog");
+	vl.values = values;
+	vl.values_len = 1;
+	values[0].derive = backlog;
+	plugin_dispatch_values (&vl);
 
-			vl.values = values;
-			plugin_dispatch_values (&vl);
+	/* type : ops */
+	mountstats_initialize_value_list(&vl, m, "nfsclient_ops");
+	vl.values = values;
+	vl.values_len = 2;
+	values[0].derive = ops[0];
+	values[1].derive = ops[1];
+	plugin_dispatch_values (&vl);
+
+	/* type : kilobytes */
+	mountstats_initialize_value_list(&vl, m, "nfsclient_kilobytes");
+	vl.values = values;
+	vl.values_len = 2;
+	values[0].derive = kilobytes[0];
+	values[1].derive = kilobytes[1];
+	plugin_dispatch_values (&vl);
+
+	/* type : kbperop */
+	mountstats_initialize_value_list(&vl, m, "nfsclient_kbperop");
+	vl.values = values;
+	vl.values_len = 2;
+	values[0].gauge = kb_per_op[0];
+	values[1].gauge = kb_per_op[1];
+	plugin_dispatch_values (&vl);
+
+	/* type : retrans */
+	mountstats_initialize_value_list(&vl, m, "nfsclient_retrans");
+	vl.values = values;
+	vl.values_len = 2;
+	values[0].gauge = retrans[0];
+	values[1].gauge = retrans[1];
+	plugin_dispatch_values (&vl);
+
+	/* type : retrans_percent */
+	mountstats_initialize_value_list(&vl, m, "nfsclient_retrans_percent");
+	vl.values = values;
+	vl.values_len = 2;
+	values[0].gauge = ops_since_last_time[0]?(retrans[0]*100/ops_since_last_time[0]):0;
+	values[1].gauge = ops_since_last_time[1]?(retrans[1]*100/ops_since_last_time[1]):0;
+	plugin_dispatch_values (&vl);
+
+	/* type : rtt */
+	mountstats_initialize_value_list(&vl, m, "nfsclient_rtt");
+	vl.values = values;
+	vl.values_len = 2;
+	values[0].gauge = rtt_per_op[0];
+	values[1].gauge = rtt_per_op[1];
+	plugin_dispatch_values (&vl);
+
+	/* type : exe */
+	mountstats_initialize_value_list(&vl, m, "nfsclient_exe");
+	vl.values = values;
+	vl.values_len = 2;
+	values[0].gauge = exe_per_op[0];
+	values[1].gauge = exe_per_op[1];
+	plugin_dispatch_values (&vl);
+
+
+} /* void mountstats_compute_and_submit */
+
+int duplicate_mountstats(mountstats_t *dest, mountstats_t *src) {
+
+	size_t i;
+	dest->mountpoint = NULL; /* useless */
+	dest->age = src->age;
+	memcpy(dest->events, src->events, sizeof(dest->events));
+	memcpy(dest->bytes, src->bytes, sizeof(dest->bytes));
+	dest->xprt_type = src->xprt_type;
+	memcpy(dest->xprt, src->xprt, sizeof(dest->xprt));
+
+	dest->size_op = 2;
+	dest->nb_op = 0;
+	if(NULL == dest->op) {
+		if(NULL == (dest->op = malloc(dest->size_op*sizeof(*dest->op)))) {
+			ERROR("nfs plugin : out of memory");
+			return(-1);
 		}
 	}
+	for(i=0; i<src->nb_op; i++) {
+		if(
+				(!strcmp(src->op[i].op_name, "READ")) ||
+				(!strcmp(src->op[i].op_name, "WRITE"))
+		  ) { /* Copy only needed ops */
+			strncpy(dest->op[dest->nb_op].op_name, src->op[i].op_name, sizeof(src->op[i].op_name)+1);
+			memcpy(dest->op[dest->nb_op].op, src->op[i].op, sizeof(src->op[i].op));
+			dest->nb_op++;
+			assert(dest->nb_op <= dest->size_op);
+		}
+	}
+	return(0);
+}
 
-} /* void mountstats_submit */
 
+int dispatch_mountstats(mountstats_t *m) {
+	mountstats_t *oldm;
+	if(NULL == m->mountpoint) { return (0); }
+/*	print_mountstats(m); */
 
-void dispatch_mountstats(mountstats_t *m) {
-	if(NULL == m->mountpoint) return;
-//	print_mountstats(m);
-	mountstats_submit(m);
+/* 1st step : find a previous mountstat value.
+ * 2nd step, if found : compute and submit data
+ * 2nd step, if not found : allocate memory
+ * 3rd step : in any case, store the new value into the memory of the old one.
+ */
+	if(0 == c_avl_get(mountstats_per_mountpoint, m->mountpoint, (void**)&oldm)) {
+		/* if mountpoint was remounted, we do not compute and submit data this time
+		 * However, we already have oldm allocated so we do not need to
+		 * malloc. */
+		if(m->age > oldm->age) {
+			mountstats_compute_and_submit(m, oldm);
+		}
+	} else {
+		char *key;
+		/* Not found : these are the 1st values */
+		if(NULL == (oldm = calloc(1,sizeof(*oldm)))) {
+			ERROR("nfs plugin : out of memory");
+			return(-1);
+		}
+		if(NULL == (key = strdup(m->mountpoint))) {
+			ERROR("nfs plugin : out of memory");
+			return(-1);
+		}
+		c_avl_insert(mountstats_per_mountpoint, key, oldm);
+	}
+	assert(oldm != NULL);
+	/* Keep a copy of the new mountstats into oldm for next time */
+	if(0 != duplicate_mountstats(oldm, m)) { return(-1); }
+	return(0);
 }
 
 int string_to_array_of_Lu(char *str, unsigned long long *a, int n) {
@@ -895,8 +904,13 @@ int parse_proc_self_mountstats(void) {
 		if(buf[0] == 'd') {
 			if(!strncmp(buf, "device ", sizeof("device ")-1)) {
 				if(mountstats.mountpoint) {
-					dispatch_mountstats(&mountstats); /* Dispatch data */
+					int status;
+					status = dispatch_mountstats(&mountstats); /* Dispatch data */
 					clear_mountstats(&mountstats); /* Clear the data buffer */
+					if(status != 0) {
+						fclose(fh);
+						return(-1);
+					}
 				}
 				state = psm_state_start;
 			}
@@ -1051,8 +1065,13 @@ int parse_proc_self_mountstats(void) {
 		}
 	}
 	if(feof(fh)) {
-		dispatch_mountstats(&mountstats);
+		int status;
+		status = dispatch_mountstats(&mountstats);
 		clear_mountstats(&mountstats);
+		if(status != 0) {
+			fclose(fh);
+			return(-1);
+		}
 	} else {
 		WARNING("nfs plugin : Reading /proc/self/mountstats failed. Some data will be ignored.");
 		fclose(fh);
@@ -1075,6 +1094,14 @@ static int nfs_init (void)
 {
 	proc_self_mountstats_is_available = (0 == is_proc_self_mountstats_available())?1:0;
 	INFO("nfs plugin : Statistics through /proc/self/mountstats are %s", proc_self_mountstats_is_available?"available":"unavailable");
+
+	/* Initialize the mountpoints statistics tree */
+	if(proc_self_mountstats_is_available) {
+		if(NULL == (mountstats_per_mountpoint = c_avl_create((void*)strcmp))) {
+			ERROR("nfs plugin : c_avl_create failed");
+			return(-1);
+		}
+	}
 	return (0);
 }
 /* #endif KERNEL_LINUX */

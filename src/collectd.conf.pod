@@ -2919,21 +2919,18 @@ Example :
    enable_client_stats_per_mountpoint <true|false>
    <mountpoint "all">
      min_age 3600
-     perop_statistics ""
-     show true
+     enable true
    </mountpoint>
    <mountpoint "/mnt">
-     show false
+     enable false
    </mountpoint>
    <mountpoint "/mynfsmountpoints/data1">
      min_age 0
-     perop_statistics "all"
-     show true
+     enable true
    </mountpoint>
    <mountpoint "/mynfsmountpoints/data2">
      min_age 0
-     perop_statistics "READ,WRITE,GETATTR"
-     show true
+     enable true
    </mountpoint>
  </Plugin>
 
@@ -2960,24 +2957,6 @@ Enable or not this mountpoint.
 =item B<min_age> I<seconds>
 
 Ignore mountpoint unless its age is more than I<seconds>. Do not ignore if set to 0.
-
-=item B<perop_statistics> B<string>
-
-=over
-
-=item *
-
-If not empty, this is a CSV list of per-op statistics to collect from /proc/self/mountpoint.
-
-=item *
-
-If empty or missing, no per-op statistics will be collected.
-
-=item *
-
-If set to "all", all per-op statistics will be collected.
-
-=back
 
 =back
 
