@@ -326,6 +326,7 @@ typedef struct {
 	nfs_per_op_statistic_t *op;
 	int nb_op;
 	int size_op;
+	time_t last_updated;
 } mountstats_t;
 
 static c_avl_tree_t *mountstats_per_mountpoint = NULL;
@@ -551,14 +552,21 @@ static int is_proc_self_mountstats_available (void)
 	return (0);
 }
 
-void clear_mountstats(mountstats_t *m) {
+static void clear_mountstats(mountstats_t *m) {
 	if(m->mountpoint) free(m->mountpoint);
 	m->mountpoint=NULL;
 	if(m->op) free(m->op);
 	memset(m, '\0', sizeof(*m));
 }
 
-void print_mountstats(mountstats_t *m) {
+static void free_mountstats(mountstats_t *m) {
+	if(m->mountpoint) free(m->mountpoint);
+	if(m->op) free(m->op);
+	free(m);
+}
+
+#ifdef USE_PRINT_MOUNTSTATS
+static void print_mountstats(mountstats_t *m) {
 	int i;
 	if(NULL == m->mountpoint) return;
 
@@ -599,6 +607,7 @@ void print_mountstats(mountstats_t *m) {
 	}
 	INFO(NFSPLUGININFO "End (%s)", m->mountpoint);
 }
+#endif
 
 static void mountstats_initialize_value_list(value_list_t *vl, mountstats_t *m, const char *data_type) {
 	int i;
@@ -789,9 +798,10 @@ static void mountstats_compute_and_submit (mountstats_t *m, mountstats_t *oldm) 
 
 } /* void mountstats_compute_and_submit */
 
-int duplicate_mountstats(mountstats_t *dest, mountstats_t *src) {
+static int duplicate_mountstats(mountstats_t *dest, mountstats_t *src) {
 
 	size_t i;
+	dest->last_updated = src->last_updated;
 	dest->mountpoint = NULL; /* useless */
 	dest->age = src->age;
 	memcpy(dest->events, src->events, sizeof(dest->events));
@@ -821,8 +831,50 @@ int duplicate_mountstats(mountstats_t *dest, mountstats_t *src) {
 	return(0);
 }
 
+static int remove_old_mountpoints(time_t t) {
+	char **remove;
+	char *key;
+	mountstats_t *m;
+	size_t i;
+	size_t n=0;
+	size_t n_max;
+	c_avl_iterator_t *iter;
 
-int dispatch_mountstats(mountstats_t *m) {
+/* Iterate on all mountpoints.
+ *   When a mountpoint does not have its last_updated equal to t, put it in the **remove list.
+ * Iterate on the **remove list
+ *   free all the mountpoints and remove them from the tree
+ */
+	n_max = c_avl_size(mountstats_per_mountpoint);
+	if(NULL == (remove = malloc(n_max*sizeof(*remove)))) {
+		return(-1);
+	}
+	
+	iter = c_avl_get_iterator (mountstats_per_mountpoint); 
+	while (c_avl_iterator_next (iter, (void *) &key, (void *) &m) == 0) 
+	{ 
+		if (m->last_updated == t)  {
+			continue; 
+		} 
+		remove[n] = key;
+		n++;
+		assert(n<n_max);
+	} /* while (c_avl_iterator_next) */ 
+	c_avl_iterator_destroy (iter); 
+
+	for(i=0; i<n; i++) {
+		INFO("nfs plugin : mountpoint '%s' no more monitored (not found in /proc/self/mountstats)", key);
+		if(0 == c_avl_remove(mountstats_per_mountpoint, remove[i], (void *) &key, (void *) &m)) {
+			free(key);
+			free_mountstats(m);
+		}
+	}
+	free(remove);
+
+	return(0);
+}
+
+static int dispatch_mountstats(mountstats_t *m) {
 	mountstats_t *oldm;
 	if(NULL == m->mountpoint) { return (0); }
 /*	print_mountstats(m); */
@@ -851,6 +903,7 @@ int dispatch_mountstats(mountstats_t *m) {
 			return(-1);
 		}
 		c_avl_insert(mountstats_per_mountpoint, key, oldm);
+		INFO("nfs plugin : mountpoint '%s' is now monitored (found in /proc/self/mountstats)", key);
 	}
 	assert(oldm != NULL);
 	/* Keep a copy of the new mountstats into oldm for next time */
@@ -858,7 +911,7 @@ int dispatch_mountstats(mountstats_t *m) {
 	return(0);
 }
 
-int string_to_array_of_Lu(char *str, unsigned long long *a, int n) {
+static int string_to_array_of_Lu(char *str, unsigned long long *a, int n) {
 	char *s, *endptr;
 	int i;
 
@@ -876,19 +929,21 @@ int string_to_array_of_Lu(char *str, unsigned long long *a, int n) {
 	return(i);
 }
 
-int parse_proc_self_mountstats(void) {
+static int parse_proc_self_mountstats(void) {
 	FILE *fh;
 	char buf[4096];
 	char wbuf[4096];
 	proc_self_mountstats_state_e state;
 	short parse_error = 0;
 	mountstats_t mountstats;
+	time_t now;
 
 	fh = fopen("/proc/self/mountstats", "r");
 	if(NULL == fh) {
 		WARNING("nfs plugin : Could not open /proc/self/mountstats. But it could be opened at plugin initialization. Strange...");
 		return(-1);
 	}
+	now = time(NULL);
 	memset(&mountstats, '\0', sizeof(mountstats));
 	state = psm_state_start;
 	while(fgets(buf, sizeof(buf), fh)) {
@@ -905,6 +960,7 @@ int parse_proc_self_mountstats(void) {
 			if(!strncmp(buf, "device ", sizeof("device ")-1)) {
 				if(mountstats.mountpoint) {
 					int status;
+					mountstats.last_updated = now;
 					status = dispatch_mountstats(&mountstats); /* Dispatch data */
 					clear_mountstats(&mountstats); /* Clear the data buffer */
 					if(status != 0) {
@@ -1066,6 +1122,7 @@ int parse_proc_self_mountstats(void) {
 	}
 	if(feof(fh)) {
 		int status;
+		mountstats.last_updated = now;
 		status = dispatch_mountstats(&mountstats);
 		clear_mountstats(&mountstats);
 		if(status != 0) {
@@ -1078,6 +1135,9 @@ int parse_proc_self_mountstats(void) {
 		return(-1);
 	}
 	fclose(fh);
+	if(0 != remove_old_mountpoints(now)) {
+		return(-1);
+	}
 	return(0);
 
 an_error_happened:
