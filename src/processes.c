@@ -726,6 +726,46 @@ static void ps_submit_proc_list (procstat_t *ps)
 			ps->io_rchar, ps->io_wchar, ps->io_syscr, ps->io_syscw);
 } /* void ps_submit_proc_list */
 
+#if KERNEL_LINUX || KERNEL_SOLARIS
+static void ps_submit_fork_rate (derive_t value)
+{
+	value_t values[1];
+	value_list_t vl = VALUE_LIST_INIT;
+
+	values[0].derive = value;
+
+	vl.values = values;
+	vl.values_len = 1;
+	sstrncpy(vl.host, hostname_g, sizeof (vl.host));
+	sstrncpy(vl.plugin, "processes", sizeof (vl.plugin));
+	sstrncpy(vl.plugin_instance, "", sizeof (vl.plugin_instance));
+	sstrncpy(vl.type, "fork_rate", sizeof (vl.type));
+	sstrncpy(vl.type_instance, "", sizeof (vl.type_instance));
+
+	plugin_dispatch_values(&vl);
+}
+#endif /* KERNEL_LINUX || KERNEL_SOLARIS*/
+
+#if KERNEL_LINUX
+static void ps_submit_ctxsw_rate (derive_t value)
+{
+	value_t values[1];
+	value_list_t vl = VALUE_LIST_INIT;
+
+	values[0].derive = value;
+
+	vl.values = values;
+	vl.values_len = 1;
+	sstrncpy(vl.host, hostname_g, sizeof (vl.host));
+	sstrncpy(vl.plugin, "processes", sizeof (vl.plugin));
+	sstrncpy(vl.plugin_instance, "", sizeof (vl.plugin_instance));
+	sstrncpy(vl.type, "context_switch_rate", sizeof (vl.type));
+	sstrncpy(vl.type_instance, "", sizeof (vl.type_instance));
+
+	plugin_dispatch_values(&vl);
+}
+#endif /* KERNEL_LINUX */
+
 /* ------- additional functions for KERNEL_LINUX/HAVE_THREAD_INFO ------- */
 #if KERNEL_LINUX
 static int ps_read_tasks (int pid)
@@ -1161,6 +1201,52 @@ static unsigned long read_fork_rate ()
 
 	return result;
 }
+
+static int read_ctxsw_rate ()
+{
+	FILE *proc_stat;
+	char buffer[1024];
+	value_t value;
+	_Bool value_valid = 0;
+
+	proc_stat = fopen ("/proc/stat", "r");
+	if (proc_stat == NULL)
+	{
+		char errbuf[1024];
+		ERROR ("processes plugin: fopen (/proc/stat) failed: %s",
+				sstrerror (errno, errbuf, sizeof (errbuf)));
+		return (-1);
+	}
+
+	while (fgets (buffer, sizeof (buffer), proc_stat) != NULL)
+	{
+		int status;
+		char *fields[3];
+		int fields_num;
+
+		fields_num = strsplit (buffer, fields,
+				STATIC_ARRAY_SIZE (fields));
+		if (fields_num != 2)
+			continue;
+
+		if (strcmp ("ctxt", fields[0]) != 0)
+			continue;
+
+		status = parse_value (fields[1], &value, DS_TYPE_DERIVE);
+		if (status == 0)
+			value_valid = 1;
+
+		break;
+	}
+	fclose(proc_stat);
+
+	if (!value_valid)
+		return (-1);
+
+	ps_submit_fork_rate (value.derive);
+	return (0);
+}
+#endif /*KERNEL_LINUX */
 
 static unsigned long read_ctxsw_rate ()
 {
@@ -1653,14 +1739,8 @@ static int ps_read (void)
 	for (ps_ptr = list_head_g; ps_ptr != NULL; ps_ptr = ps_ptr->next)
 		ps_submit_proc_list (ps_ptr);
 
-	fork_rate = read_fork_rate();
-	if (fork_rate != ULONG_MAX)
-		ps_submit_fork_rate(fork_rate);
-
-	ctxsw_rate = read_ctxsw_rate();
-	if (fork_rate != ULONG_MAX)
-		ps_submit_ctxsw_rate(ctxsw_rate);
-
+	read_fork_rate();
+	read_ctxsw_rate();
 /* #endif KERNEL_LINUX */
 
 #elif HAVE_LIBKVM_GETPROCS && HAVE_STRUCT_KINFO_PROC_FREEBSD
