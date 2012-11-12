@@ -1244,92 +1244,10 @@ static int read_ctxsw_rate ()
 		return (-1);
 
 	ps_submit_fork_rate (value.derive);
+	ps_submit_ctxsw_rate (value.derive);
 	return (0);
 }
 #endif /*KERNEL_LINUX */
-
-static unsigned long read_ctxsw_rate ()
-{
-	FILE *proc_stat;
-	char buf[1024];
-	unsigned long result = 0;
-	int numfields;
-	char *fields[3];
-
-	proc_stat = fopen("/proc/stat", "r");
-	if (proc_stat == NULL) {
-		char errbuf[1024];
-		ERROR ("processes plugin: fopen (/proc/stat) failed: %s",
-				sstrerror (errno, errbuf, sizeof (errbuf)));
-		return ULONG_MAX;
-	}
-
-	while (fgets (buf, sizeof(buf), proc_stat) != NULL)
-	{
-		char *endptr;
-
-		numfields = strsplit(buf, fields, STATIC_ARRAY_SIZE (fields));
-		if (numfields != 2)
-			continue;
-
-		if (strcmp ("ctxt", fields[0]) != 0)
-			continue;
-
-		errno = 0;
-		endptr = NULL;
-		result = strtoul(fields[1], &endptr, /* base = */ 10);
-		if ((endptr == fields[1]) || (errno != 0)) {
-			ERROR ("processes plugin: Cannot parse context switch rate: %s",
-					fields[1]);
-			result = ULONG_MAX;
-			break;
-		}
-
-		break;
-	}
-
-	fclose(proc_stat);
-
-	return result;
-}
-
-static void ps_submit_fork_rate (unsigned long value)
-{
-	value_t values[1];
-	value_list_t vl = VALUE_LIST_INIT;
-
-	values[0].derive = (derive_t) value;
-
-	vl.values = values;
-	vl.values_len = 1;
-	sstrncpy (vl.host, hostname_g, sizeof (vl.host));
-	sstrncpy (vl.plugin, "processes", sizeof (vl.plugin));
-	sstrncpy (vl.plugin_instance, "", sizeof (vl.plugin_instance));
-	sstrncpy (vl.type, "fork_rate", sizeof (vl.type));
-	sstrncpy (vl.type_instance, "", sizeof (vl.type_instance));
-
-	plugin_dispatch_values (&vl);
-}
-
-static void ps_submit_ctxsw_rate (unsigned long value)
-{
-	value_t values[1];
-	value_list_t vl = VALUE_LIST_INIT;
-
-	values[0].derive = (derive_t) value;
-
-	vl.values = values;
-	vl.values_len = 1;
-	sstrncpy (vl.host, hostname_g, sizeof (vl.host));
-	sstrncpy (vl.plugin, "processes", sizeof (vl.plugin));
-	sstrncpy (vl.plugin_instance, "", sizeof (vl.plugin_instance));
-	sstrncpy (vl.type, "context_switch_rate", sizeof (vl.type));
-	sstrncpy (vl.type_instance, "", sizeof (vl.type_instance));
-
-	plugin_dispatch_values (&vl);
-}
-
-#endif /* KERNEL_LINUX */
 
 #if HAVE_THREAD_INFO
 static int mach_get_task_name (task_t t, int *pid, char *name, size_t name_max_len)
@@ -1654,9 +1572,6 @@ static int ps_read (void)
 	procstat_t ps;
 	procstat_entry_t pse;
 	char       state;
-
-	unsigned long fork_rate;
-	unsigned long ctxsw_rate;
 
 	procstat_t *ps_ptr;
 
