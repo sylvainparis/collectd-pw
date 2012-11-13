@@ -4655,6 +4655,7 @@ then
 	plugin_nfs="yes"
 	plugin_uptime="yes"
 	plugin_zfs_arc="yes"
+	plugin_vmem="yes"
 fi
 
 if test "x$with_devinfo$with_kstat" = "xyesyes"
