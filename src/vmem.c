@@ -75,6 +75,8 @@ static void submit_two (const char *plugin_instance, const char *type,
   submit (plugin_instance, type, type_instance, values, 2);
 } /* void submit_one */
 
+#if KERNEL_SOLARIS
+/* Not used except with KERNEL_SOLARIS */
 static void submit_three (const char *plugin_instance, const char *type, 
                           const char *type_instance, derive_t c0, derive_t c1, derive_t c2)
 {
@@ -84,6 +86,7 @@ static void submit_three (const char *plugin_instance, const char *type,
   values[2].derive = c1;
   values[3].derive = c2;
 }
+#endif
 
 static void submit_one (const char *plugin_instance, const char *type,
     const char *type_instance, value_t value)
